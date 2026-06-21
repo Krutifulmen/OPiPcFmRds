@@ -1,12 +1,12 @@
 CC = gcc
 STD_CFLAGS = -Wall -std=gnu99 -c -g
 
-# Enable ARM-specific options only on ARM, and compilation of the app only on ARM
+# Enable ARM-specific options only on ARM.
 UNAME := $(shell uname -m)
 
-# Determine Raspberry Pi version (if 2 or greater)
-RPI_MODEL := $(shell cat /proc/device-tree/model)
-RPI_VERSION := $(shell cat /proc/device-tree/model | grep -a -o "Raspberry\sPi\s[0-9]" | grep -o "[0-9]")
+# Determine Raspberry Pi version without failing on Orange Pi PC/non-DT hosts.
+RPI_MODEL := $(shell cat /proc/device-tree/model 2>/dev/null)
+RPI_VERSION := $(shell printf "%s" "$(RPI_MODEL)" | grep -a -o "Raspberry\sPi\s[0-9]" | grep -o "[0-9]")
 
 ifeq ($(findstring Raspberry Pi Zero 2,$(RPI_MODEL)),Raspberry Pi Zero 2)
 	# Treat Raspberry Pi Zero 2 as model 3.
@@ -18,10 +18,13 @@ endif
 
 $(info RPI_VERSION = $(RPI_VERSION))
 
-# Determine the hardware platform and set proper compilation flags
+# Determine the hardware platform and set proper compilation flags.
 ifeq ($(UNAME), armv6l)
 	ARCH_CFLAGS = -march=armv6 -O3 -mtune=arm1176jzf-s -mfloat-abi=hard -mfpu=vfp -ffast-math
 	TARGET = 1
+else ifeq ($(RPI_VERSION),)
+	ARCH_CFLAGS = -O3
+	TARGET = other
 else ifeq ($(shell expr $(RPI_VERSION) \> 1), 1)
 	ifeq ($(UNAME), armv7l)
 		ARCH_CFLAGS = -march=armv7-a -O3 -mtune=arm1176jzf-s -mfloat-abi=hard -mfpu=vfp -ffast-math
@@ -37,15 +40,18 @@ else
 	ARCH_CFLAGS = -O3
 	TARGET = other
 endif
+
 CFLAGS = $(STD_CFLAGS) $(ARCH_CFLAGS) -DRASPI=$(TARGET)
 
 ifneq ($(TARGET), other)
+app: pi_fm_rds
 
-app: rds.o waveforms.o pi_fm_rds.o rds_strings.o fm_mpx.o control_pipe.o mailbox.o
+pi_fm_rds: rds.o waveforms.o pi_fm_rds.o rds_strings.o fm_mpx.o control_pipe.o mailbox.o
 	$(CC) $(LDFLAGS) -o pi_fm_rds rds.o rds_strings.o waveforms.o mailbox.o pi_fm_rds.o fm_mpx.o control_pipe.o -lsndfile -lm
-
 endif
 
+orange_pi_pc: rds.o waveforms.o orange_pi_pc_fm_rds.o rds_strings.o fm_mpx.o control_pipe.o
+	$(CC) $(LDFLAGS) -o orange_pi_pc_fm_rds rds.o rds_strings.o waveforms.o orange_pi_pc_fm_rds.o fm_mpx.o control_pipe.o -lsndfile -lm
 
 rds_wav: rds.o rds_strings.o waveforms.o rds_wav.o fm_mpx.o
 	$(CC) $(LDFLAGS) -o rds_wav rds_wav.o rds.o rds_strings.o waveforms.o fm_mpx.o -lsndfile -lm
@@ -72,6 +78,9 @@ mailbox.o: mailbox.c mailbox.h
 pi_fm_rds.o: pi_fm_rds.c control_pipe.h fm_mpx.h rds.h mailbox.h
 	$(CC) $(CFLAGS) pi_fm_rds.c
 
+orange_pi_pc_fm_rds.o: orange_pi_pc_fm_rds.c control_pipe.h fm_mpx.h rds.h
+	$(CC) $(CFLAGS) orange_pi_pc_fm_rds.c
+
 rds_wav.o: rds_wav.c
 	$(CC) $(CFLAGS) rds_wav.c
 
@@ -79,4 +88,4 @@ fm_mpx.o: fm_mpx.c fm_mpx.h
 	$(CC) $(CFLAGS) fm_mpx.c
 
 clean:
-	rm -f *.o *_test
+	rm -f *.o *_test pi_fm_rds orange_pi_pc_fm_rds rds_wav
